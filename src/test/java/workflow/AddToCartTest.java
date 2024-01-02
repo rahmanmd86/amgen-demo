@@ -1,11 +1,10 @@
 package workflow;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 
-import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.WebElement;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
 import org.testng.Assert;
@@ -14,9 +13,17 @@ import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
 import org.testng.collections.Lists;
 
+import com.ambrygen.that.components.Product;
+import com.ambrygen.that.pages.CartPage;
+import com.ambrygen.that.pages.HomePage;
+import com.ambrygen.that.pages.SearchResultPage;
+
 public class AddToCartTest {
 
-    static WebDriver driver= null;
+    static WebDriver driver = null;
+    private HomePage homePage;
+    private SearchResultPage searchResultPage;
+    private CartPage cartPage;
 
     @BeforeTest
     public void setUp(){
@@ -27,47 +34,56 @@ public class AddToCartTest {
         driver = new ChromeDriver(options);
         driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(30));
         driver.manage().deleteAllCookies();
+
+        driver.get("https://www.walgreens.com/");
     }
 
     @Test
     //@Parameters({"productName", "quantity"}) String productName, int quantity
-    public void verifyAddToCartWorkflow() {
+    public void verifyAddToCartWorkflow() throws InterruptedException {
 
         String searchString = "colgate";
+        int quantity = 5;
 
-        driver.get("https://www.walgreens.com/");
-
+        homePage = new HomePage(driver);
         Assert.assertTrue(driver.getTitle().contains("Walgreens"));
 
-        System.out.println("Title found to be: " + driver.getTitle());
-
-        WebElement searchBar = driver.findElement(By.cssSelector("form.input__search-contain > input"));
-        searchBar.sendKeys(searchString);
-        
-        WebElement searchIcon = driver.findElement(By.cssSelector("form.input__search-contain > button.icon__search"));
-        searchIcon.click();
-
+        searchResultPage = homePage.searchProduct(searchString);
         Assert.assertTrue(driver.getTitle().contains(searchString));
 
-        List<List<WebElement>> pages = Lists.newArrayList();
+        List<List<Product>> pages = Lists.newArrayList();
+        List<Product> products = Lists.newArrayList();
+        boolean hasNext = true;
 
-        List<WebElement> products = driver.findElements(By.cssSelector("ul.product-container > li.card__product button.btn__blue"));
-        System.out.println(products.size());
-        pages.add(products);
-
-        WebElement nextPageButton = driver.findElement(By.cssSelector("div.pagination > button#omni-next-click"));
-        boolean isDisabled = isAttributePresent(nextPageButton, "disabled");
-
-        while (isDisabled) {
-            nextPageButton.click();
-            // Wait for page to load
-            isDisabled = isAttributePresent(nextPageButton, "disabled");
-            products = driver.findElements(By.cssSelector("ul.product-container > li.card__product button.btn__blue"));
+        while(hasNext) {
+            products = searchResultPage.getProducts();
             pages.add(products);
+            if(searchResultPage.nextButton().isEnabled()) {
+                searchResultPage.nextButton().click();
+                Thread.sleep(5000);
+            } else {
+                hasNext = false;
+            }
         }
 
-        System.out.println(pages.size());
+        // Matches product title with search
+        for (int i=0; i<pages.size(); i++) {
+            for (Product product:products){
+                Assert.assertTrue(product.getProductTitle().regionMatches(true, 0, searchString, 0, 0));
+            }
+        }
+        
+        // Add last product to cart and increment quantity
+        Product lastProduct = pages.get(pages.size()-1).get(products.size()-1);
+        lastProduct.addToCart().click();
+        cartPage = searchResultPage.processProductToCart("pickup");
 
+        BigDecimal productPrice = cartPage.getPrice();
+        cartPage.incrementQuantity(quantity);
+        BigDecimal actualPrice = cartPage.getPrice();
+        BigDecimal expectedPrice = productPrice.multiply(BigDecimal.valueOf(quantity));
+
+        Assert.assertEquals(actualPrice, expectedPrice);
 
     }
 
@@ -76,15 +92,4 @@ public class AddToCartTest {
         driver.close();
     }
 
-    private boolean isAttributePresent(WebElement element, String attribute) {
-        Boolean result = false;
-        try {
-            String value = element.getAttribute(attribute);
-            if ((value != null) || (value != "")) {
-                result = true;
-            }
-        } catch (Exception e) {}
-    
-        return result;
-    }
 }
